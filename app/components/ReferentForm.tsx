@@ -49,14 +49,41 @@ export default function ReferentForm() {
     setLoading(true);
     setResult("");
 
-    // Заглушка до подключения парсинга и AI
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    try {
+      const response = await fetch("/api/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: trimmedUrl }),
+      });
 
-    const actionLabel = ACTIONS.find((item) => item.id === action)?.label ?? "";
-    setResult(
-      `[${actionLabel}]\n\nСтатья: ${trimmedUrl}\n\nЗдесь появится результат после подключения парсинга и AI.`,
-    );
-    setLoading(false);
+      const data = (await response.json()) as {
+        date?: string | null;
+        title?: string | null;
+        content?: string | null;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Не удалось распарсить статью");
+      }
+
+      const parsed = {
+        date: data.date ?? null,
+        title: data.title ?? null,
+        content: data.content ?? null,
+      };
+
+      setResult(JSON.stringify(parsed, null, 2));
+    } catch (parseError) {
+      setError(
+        parseError instanceof Error
+          ? parseError.message
+          : "Ошибка при парсинге статьи",
+      );
+      setResult("");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -111,7 +138,7 @@ export default function ReferentForm() {
               >
                 <span className="block text-sm font-semibold">{action.label}</span>
                 <span className="mt-1 block text-xs text-slate-500">
-                  {isBusy ? "Генерация..." : action.description}
+                  {isBusy ? "Парсинг..." : action.description}
                 </span>
               </button>
             );
@@ -123,12 +150,12 @@ export default function ReferentForm() {
         <div className="mb-4 flex items-center justify-between gap-4">
           <h2 className="text-lg font-semibold text-slate-900">Результат</h2>
           {loading && (
-            <span className="text-sm text-indigo-600">Генерация ответа...</span>
+            <span className="text-sm text-indigo-600">Парсинг статьи...</span>
           )}
         </div>
 
         <div
-          className="min-h-48 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-wrap"
+          className="min-h-48 rounded-xl border border-slate-200 bg-slate-50 p-4 font-mono text-sm leading-6 text-slate-700 whitespace-pre-wrap break-words"
           aria-live="polite"
         >
           {loading ? (
