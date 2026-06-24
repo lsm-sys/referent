@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.12.4",
   "scripts": {
     "dev": "next dev",
+    "dev:clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && next dev",
     "build": "next build",
     "start": "next start"
   },
