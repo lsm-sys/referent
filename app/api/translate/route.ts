@@ -1,30 +1,30 @@
 import { NextResponse } from "next/server";
+import { apiErrorResponse, validateArticleUrl } from "@/lib/api-helpers";
 import { fetchAndParseArticle } from "@/lib/parse-article";
 import { translateArticle } from "@/lib/openrouter";
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { url?: string };
-    const url = body.url?.trim();
+    const validated = validateArticleUrl(body.url);
 
-    if (!url) {
-      return NextResponse.json({ error: "URL не указан" }, { status: 400 });
+    if (validated instanceof NextResponse) {
+      return validated;
     }
 
-    try {
-      new URL(url);
-    } catch {
-      return NextResponse.json({ error: "Некорректный URL" }, { status: 400 });
+    const article = await fetchAndParseArticle(validated.url);
+
+    if (!article.content?.trim()) {
+      return NextResponse.json(
+        { error: "Не удалось извлечь текст статьи. Попробуйте другой URL." },
+        { status: 422 },
+      );
     }
 
-    const article = await fetchAndParseArticle(url);
     const translation = await translateArticle(article.title, article.content);
 
     return NextResponse.json({ translation });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Ошибка при переводе статьи";
-
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiErrorResponse(error, "Ошибка при переводе статьи");
   }
 }

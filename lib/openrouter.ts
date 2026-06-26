@@ -1,5 +1,7 @@
 import "server-only";
 
+import { buildArticlePromptInput } from "@/lib/article-text";
+
 type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -31,6 +33,7 @@ export async function chatCompletion(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ model, messages }),
+    signal: AbortSignal.timeout(90000),
   });
 
   const data = (await response.json()) as {
@@ -55,23 +58,7 @@ export async function translateArticle(
   title: string | null,
   content: string | null,
 ): Promise<string> {
-  if (!content?.trim()) {
-    throw new Error("Не удалось извлечь текст статьи для перевода");
-  }
-
-  const maxLength = 12000;
-  const trimmedContent =
-    content.length > maxLength
-      ? `${content.slice(0, maxLength)}\n\n[... текст обрезан для перевода ...]`
-      : content;
-
-  const articleText = [
-    title ? `Title: ${title}` : null,
-    "",
-    trimmedContent,
-  ]
-    .filter((part) => part !== null)
-    .join("\n");
+  const { text: articleText } = buildArticlePromptInput(title, content);
 
   return chatCompletion([
     {
@@ -82,6 +69,67 @@ export async function translateArticle(
     {
       role: "user",
       content: `Переведи эту статью на русский:\n\n${articleText}`,
+    },
+  ]);
+}
+
+export async function summarizeArticle(
+  title: string | null,
+  content: string | null,
+): Promise<string> {
+  const { text: articleText } = buildArticlePromptInput(title, content);
+
+  return chatCompletion([
+    {
+      role: "system",
+      content:
+        "Ты редактор и аналитик. Кратко и точно описываешь содержание англоязычных статей на русском языке.",
+    },
+    {
+      role: "user",
+      content: `Кратко опиши, о чём эта статья. Ответ на русском, без воды, 2–4 абзаца.\n\n${articleText}`,
+    },
+  ]);
+}
+
+export async function extractTheses(
+  title: string | null,
+  content: string | null,
+): Promise<string> {
+  const { text: articleText } = buildArticlePromptInput(title, content);
+
+  return chatCompletion([
+    {
+      role: "system",
+      content:
+        "Ты редактор. Выделяешь главные мысли англоязычных статей и формулируешь их на русском языке.",
+    },
+    {
+      role: "user",
+      content: `Выдели 5–10 ключевых тезисов. Маркированный список на русском.\n\n${articleText}`,
+    },
+  ]);
+}
+
+export async function generateTelegramPost(
+  title: string | null,
+  content: string | null,
+  date?: string | null,
+): Promise<string> {
+  const { text: articleText } = buildArticlePromptInput(title, content);
+  const context = date?.trim()
+    ? `Date: ${date.trim()}\n\n${articleText}`
+    : articleText;
+
+  return chatCompletion([
+    {
+      role: "system",
+      content:
+        "Ты SMM-редактор. Пишешь короткие посты для Telegram-каналов на русском языке.",
+    },
+    {
+      role: "user",
+      content: `Напиши пост для Telegram-канала: цепляющий заголовок, суть, 1–2 вывода. До 1500 символов, на русском.\n\n${context}`,
     },
   ]);
 }

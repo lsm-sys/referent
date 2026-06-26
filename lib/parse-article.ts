@@ -1,6 +1,7 @@
 import "server-only";
 
 import * as cheerio from "cheerio";
+import { getHttpFetchMessage } from "@/lib/errors";
 
 export type ParsedArticle = {
   date: string | null;
@@ -157,10 +158,11 @@ export async function fetchAndParseArticle(url: string): Promise<ParsedArticle> 
       Accept: "text/html,application/xhtml+xml",
     },
     redirect: "follow",
+    signal: AbortSignal.timeout(15000),
   });
 
   if (!response.ok) {
-    throw new Error(`Не удалось загрузить страницу: HTTP ${response.status}`);
+    throw new Error(getHttpFetchMessage(response.status));
   }
 
   const html = await response.text();

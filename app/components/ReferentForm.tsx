@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { getClientErrorMessage } from "@/lib/errors";
 
-type ActionType = "summary" | "theses" | "telegram" | "translate";
+type ActionType = "summary" | "theses" | "telegram";
 
 const ACTIONS: { id: ActionType; label: string; description: string }[] = [
   {
@@ -20,26 +21,43 @@ const ACTIONS: { id: ActionType; label: string; description: string }[] = [
     label: "Пост для Telegram",
     description: "Готовый пост для публикации",
   },
-  {
-    id: "translate",
-    label: "Перевод",
-    description: "Полный перевод на русский (DeepSeek)",
-  },
 ];
 
 const LOADING_LABELS: Record<ActionType, string> = {
-  summary: "Парсинг статьи...",
-  theses: "Парсинг статьи...",
-  telegram: "Парсинг статьи...",
-  translate: "Перевод статьи...",
+  summary: "Анализ статьи...",
+  theses: "Формирование тезисов...",
+  telegram: "Генерация поста...",
 };
 
 const BUSY_LABELS: Record<ActionType, string> = {
-  summary: "Парсинг...",
-  theses: "Парсинг...",
-  telegram: "Парсинг...",
-  translate: "Перевод...",
+  summary: "Анализ...",
+  theses: "Тезисы...",
+  telegram: "Пост...",
 };
+
+const REQUEST_TIMEOUT_MS = 120_000;
+
+async function postJson<T>(
+  url: string,
+  body: unknown,
+): Promise<{ response: Response; data: T }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    const data = (await response.json()) as T;
+    return { response, data };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 export default function ReferentForm() {
   const [url, setUrl] = useState("");
@@ -69,63 +87,23 @@ export default function ReferentForm() {
     setResult("");
 
     try {
-      if (action === "translate") {
-        const response = await fetch("/api/translate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: trimmedUrl }),
-        });
-
-        const data = (await response.json()) as {
-          translation?: string;
-          error?: string;
-        };
-
-        if (!response.ok) {
-          throw new Error(data.error ?? "Не удалось перевести статью");
-        }
-
-        setResult(data.translation ?? "");
-        return;
-      }
-
-      const response = await fetch("/api/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: trimmedUrl }),
-      });
-
-      const data = (await response.json()) as {
-        date?: string | null;
-        title?: string | null;
-        content?: string | null;
+      const { response, data } = await postJson<{
+        result?: string;
         error?: string;
-      };
+      }>("/api/analyze", { url: trimmedUrl, action });
 
       if (!response.ok) {
-        throw new Error(data.error ?? "Не удалось распарсить статью");
+        throw new Error(data.error ?? "Не удалось выполнить анализ статьи");
       }
 
-      const parsed = {
-        date: data.date ?? null,
-        title: data.title ?? null,
-        content: data.content ?? null,
-      };
-
-      setResult(JSON.stringify(parsed, null, 2));
+      setResult(data.result ?? "");
     } catch (actionError) {
-      setError(
-        actionError instanceof Error
-          ? actionError.message
-          : "Ошибка при обработке статьи",
-      );
+      setError(getClientErrorMessage(actionError));
       setResult("");
     } finally {
       setLoading(false);
     }
   }
-
-  const isJsonResult = activeAction !== "translate" && Boolean(result);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
@@ -159,7 +137,7 @@ export default function ReferentForm() {
           </p>
         )}
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
           {ACTIONS.map((action) => {
             const isActive = activeAction === action.id;
             const isBusy = loading && isActive;
@@ -198,10 +176,7 @@ export default function ReferentForm() {
         </div>
 
         <div
-          className={[
-            "min-h-48 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-700 whitespace-pre-wrap break-words",
-            isJsonResult ? "font-mono leading-6" : "",
-          ].join(" ")}
+          className="min-h-48 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-700 whitespace-pre-wrap break-words"
           aria-live="polite"
         >
           {loading ? (
