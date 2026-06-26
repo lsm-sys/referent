@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-type ActionType = "summary" | "theses" | "telegram";
+type ActionType = "summary" | "theses" | "telegram" | "translate";
 
 const ACTIONS: { id: ActionType; label: string; description: string }[] = [
   {
@@ -20,7 +20,26 @@ const ACTIONS: { id: ActionType; label: string; description: string }[] = [
     label: "Пост для Telegram",
     description: "Готовый пост для публикации",
   },
+  {
+    id: "translate",
+    label: "Перевод",
+    description: "Полный перевод на русский (DeepSeek)",
+  },
 ];
+
+const LOADING_LABELS: Record<ActionType, string> = {
+  summary: "Парсинг статьи...",
+  theses: "Парсинг статьи...",
+  telegram: "Парсинг статьи...",
+  translate: "Перевод статьи...",
+};
+
+const BUSY_LABELS: Record<ActionType, string> = {
+  summary: "Парсинг...",
+  theses: "Парсинг...",
+  telegram: "Парсинг...",
+  translate: "Перевод...",
+};
 
 export default function ReferentForm() {
   const [url, setUrl] = useState("");
@@ -50,6 +69,26 @@ export default function ReferentForm() {
     setResult("");
 
     try {
+      if (action === "translate") {
+        const response = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: trimmedUrl }),
+        });
+
+        const data = (await response.json()) as {
+          translation?: string;
+          error?: string;
+        };
+
+        if (!response.ok) {
+          throw new Error(data.error ?? "Не удалось перевести статью");
+        }
+
+        setResult(data.translation ?? "");
+        return;
+      }
+
       const response = await fetch("/api/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -74,17 +113,19 @@ export default function ReferentForm() {
       };
 
       setResult(JSON.stringify(parsed, null, 2));
-    } catch (parseError) {
+    } catch (actionError) {
       setError(
-        parseError instanceof Error
-          ? parseError.message
-          : "Ошибка при парсинге статьи",
+        actionError instanceof Error
+          ? actionError.message
+          : "Ошибка при обработке статьи",
       );
       setResult("");
     } finally {
       setLoading(false);
     }
   }
+
+  const isJsonResult = activeAction !== "translate" && Boolean(result);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
@@ -118,7 +159,7 @@ export default function ReferentForm() {
           </p>
         )}
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {ACTIONS.map((action) => {
             const isActive = activeAction === action.id;
             const isBusy = loading && isActive;
@@ -138,7 +179,7 @@ export default function ReferentForm() {
               >
                 <span className="block text-sm font-semibold">{action.label}</span>
                 <span className="mt-1 block text-xs text-slate-500">
-                  {isBusy ? "Парсинг..." : action.description}
+                  {isBusy ? BUSY_LABELS[action.id] : action.description}
                 </span>
               </button>
             );
@@ -149,13 +190,18 @@ export default function ReferentForm() {
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-4">
           <h2 className="text-lg font-semibold text-slate-900">Результат</h2>
-          {loading && (
-            <span className="text-sm text-indigo-600">Парсинг статьи...</span>
+          {loading && activeAction && (
+            <span className="text-sm text-indigo-600">
+              {LOADING_LABELS[activeAction]}
+            </span>
           )}
         </div>
 
         <div
-          className="min-h-48 rounded-xl border border-slate-200 bg-slate-50 p-4 font-mono text-sm leading-6 text-slate-700 whitespace-pre-wrap break-words"
+          className={[
+            "min-h-48 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-700 whitespace-pre-wrap break-words",
+            isJsonResult ? "font-mono leading-6" : "",
+          ].join(" ")}
           aria-live="polite"
         >
           {loading ? (
