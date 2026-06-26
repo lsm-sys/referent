@@ -115,13 +115,14 @@ export async function generateTelegramPost(
   title: string | null,
   content: string | null,
   date?: string | null,
+  sourceUrl?: string | null,
 ): Promise<string> {
   const { text: articleText } = buildArticlePromptInput(title, content);
   const context = date?.trim()
     ? `Date: ${date.trim()}\n\n${articleText}`
     : articleText;
 
-  return chatCompletion([
+  const post = await chatCompletion([
     {
       role: "system",
       content:
@@ -129,7 +130,13 @@ export async function generateTelegramPost(
     },
     {
       role: "user",
-      content: `Напиши пост для Telegram-канала: цепляющий заголовок, суть, 1–2 вывода. До 1500 символов, на русском.\n\n${context}`,
+      content: `Напиши пост для Telegram-канала: цепляющий заголовок, суть, 1–2 вывода. До 1500 символов, на русском. Не добавляй ссылку на источник — она будет добавлена отдельно.\n\n${context}`,
     },
   ]);
+
+  if (sourceUrl?.trim()) {
+    return `${post}\n\nИсточник: ${sourceUrl.trim()}`;
+  }
+
+  return post;
 }

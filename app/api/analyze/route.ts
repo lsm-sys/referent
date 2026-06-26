@@ -56,6 +56,7 @@ export async function POST(request: Request) {
           article.title,
           article.content,
           article.date,
+          validated.url,
         );
         break;
     }
