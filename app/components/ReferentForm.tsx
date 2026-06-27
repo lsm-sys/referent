@@ -1,32 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getClientErrorMessage } from "@/lib/errors";
 
 type ActionType = "summary" | "theses" | "telegram";
 
-const ACTIONS: { id: ActionType; label: string; description: string }[] = [
+const ACTIONS: {
+  id: ActionType;
+  label: string;
+  description: string;
+  title: string;
+}[] = [
   {
     id: "summary",
     label: "О чем статья?",
     description: "Краткое описание содержания статьи",
+    title: "Кратко описать, о чём статья, на русском языке",
   },
   {
     id: "theses",
     label: "Тезисы",
     description: "Ключевые тезисы и выводы",
+    title: "Выделить ключевые тезисы и выводы статьи",
   },
   {
     id: "telegram",
     label: "Пост для Telegram",
     description: "Готовый пост для публикации",
+    title: "Сгенерировать пост для Telegram с ссылкой на источник",
   },
 ];
 
-const LOADING_LABELS: Record<ActionType, string> = {
-  summary: "Анализ статьи...",
-  theses: "Формирование тезисов...",
-  telegram: "Генерация поста...",
+const PROCESS_LABELS: Record<ActionType, string> = {
+  summary: "Анализирую содержание…",
+  theses: "Формирую тезисы…",
+  telegram: "Генерирую пост для Telegram…",
 };
 
 const BUSY_LABELS: Record<ActionType, string> = {
@@ -64,7 +72,20 @@ export default function ReferentForm() {
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
+  const [processMessage, setProcessMessage] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!loading || !activeAction) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setProcessMessage(PROCESS_LABELS[activeAction]);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [loading, activeAction]);
 
   async function handleAction(action: ActionType) {
     setError("");
@@ -84,6 +105,7 @@ export default function ReferentForm() {
 
     setActiveAction(action);
     setLoading(true);
+    setProcessMessage("Загружаю статью…");
     setResult("");
 
     try {
@@ -102,6 +124,7 @@ export default function ReferentForm() {
       setResult("");
     } finally {
       setLoading(false);
+      setProcessMessage(null);
     }
   }
 
@@ -128,9 +151,12 @@ export default function ReferentForm() {
           type="url"
           value={url}
           onChange={(event) => setUrl(event.target.value)}
-          placeholder="https://example.com/article"
+          placeholder="Введите URL статьи, например: https://example.com/article"
           className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
         />
+        <p className="mt-2 text-xs text-slate-500">
+          Укажите ссылку на англоязычную статью
+        </p>
         {error && (
           <p className="mt-2 text-sm text-red-600" role="alert">
             {error}
@@ -146,6 +172,7 @@ export default function ReferentForm() {
               <button
                 key={action.id}
                 type="button"
+                title={action.title}
                 disabled={loading}
                 onClick={() => handleAction(action.id)}
                 className={[
@@ -165,15 +192,17 @@ export default function ReferentForm() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-slate-900">Результат</h2>
-          {loading && activeAction && (
-            <span className="text-sm text-indigo-600">
-              {LOADING_LABELS[activeAction]}
-            </span>
-          )}
+      {processMessage && (
+        <div
+          className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800"
+          aria-live="polite"
+        >
+          {processMessage}
         </div>
+      )}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-4 text-lg font-semibold text-slate-900">Результат</h2>
 
         <div
           className="min-h-48 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-700 whitespace-pre-wrap break-words"
