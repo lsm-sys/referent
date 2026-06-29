@@ -189,3 +189,22 @@ export async function classifyArticleCategory(
 export function withCategory(result: string, category: ArticleCategory): string {
   return appendCategoryToResult(result, category);
 }
+
+export async function generateIllustrationPrompt(
+  title: string | null,
+  content: string | null,
+): Promise<string> {
+  const { text: articleText } = buildArticlePromptInput(title, content);
+
+  return chatCompletion([
+    {
+      role: "system",
+      content:
+        "You are an art director. Based on articles, you write concise English prompts for AI image generation. The prompt should describe a single editorial illustration that captures the article's main theme. Style: modern editorial, clean composition, no text or letters in the image. Return only the prompt, 1–3 sentences, in English.",
+    },
+    {
+      role: "user",
+      content: `Write an image generation prompt for an illustration about this article:\n\n${articleText}`,
+    },
+  ]);
+}

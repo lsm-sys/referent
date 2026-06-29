@@ -36,6 +36,8 @@ export function toHttpStatus(code: ErrorCodeType): number {
     case ErrorCode.ARTICLE_CONTENT_EMPTY:
       return 422;
     case ErrorCode.AI_CONFIG_MISSING:
+    case ErrorCode.IMAGE_CONFIG_MISSING:
+    case ErrorCode.IMAGE_PERMISSION_DENIED:
       return 503;
     case ErrorCode.REQUEST_TIMEOUT:
     case ErrorCode.AI_TIMEOUT:

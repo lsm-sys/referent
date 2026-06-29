@@ -6,7 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { postApi, resolveClientError } from "@/lib/api-client";
 import { ErrorCode, getErrorMessage, type ErrorCode as ErrorCodeType } from "@/lib/error-codes";
 
-type ActionType = "summary" | "theses" | "telegram";
+type ActionType = "summary" | "theses" | "telegram" | "illustration";
 
 const ACTIONS: {
   id: ActionType;
@@ -32,18 +32,26 @@ const ACTIONS: {
     description: "Готовый пост для публикации",
     title: "Сгенерировать пост для Telegram с ссылкой на источник",
   },
+  {
+    id: "illustration",
+    label: "Иллюстрация",
+    description: "Изображение по теме статьи",
+    title: "Сгенерировать иллюстрацию на основе содержания статьи",
+  },
 ];
 
 const PROCESS_LABELS: Record<ActionType, string> = {
   summary: "Анализирую содержание…",
   theses: "Формирую тезисы…",
   telegram: "Генерирую пост для Telegram…",
+  illustration: "Генерирую изображение…",
 };
 
 const BUSY_LABELS: Record<ActionType, string> = {
   summary: "Анализ...",
   theses: "Тезисы...",
   telegram: "Пост...",
+  illustration: "Иллюстрация...",
 };
 
 const ERROR_TITLES: Partial<Record<ErrorCodeType, string>> = {
@@ -53,6 +61,9 @@ const ERROR_TITLES: Partial<Record<ErrorCodeType, string>> = {
   [ErrorCode.ARTICLE_CONTENT_EMPTY]: "Текст не найден",
   [ErrorCode.AI_FAILED]: "Ошибка генерации",
   [ErrorCode.AI_CONFIG_MISSING]: "AI не настроен",
+  [ErrorCode.IMAGE_FAILED]: "Ошибка изображения",
+  [ErrorCode.IMAGE_CONFIG_MISSING]: "HF не настроен",
+  [ErrorCode.IMAGE_PERMISSION_DENIED]: "Нет прав HF",
   [ErrorCode.AI_TIMEOUT]: "Слишком долго",
   [ErrorCode.REQUEST_TIMEOUT]: "Слишком долго",
   [ErrorCode.SERVER_UNAVAILABLE]: "Сервер недоступен",
@@ -63,6 +74,8 @@ export default function ReferentForm() {
   const [url, setUrl] = useState("");
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
   const [result, setResult] = useState("");
+  const [imageResult, setImageResult] = useState<string | null>(null);
+  const [imagePrompt, setImagePrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [processMessage, setProcessMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<ErrorCodeType | null>(null);
@@ -82,17 +95,23 @@ export default function ReferentForm() {
   }, [loading, activeAction]);
 
   useEffect(() => {
-    if (!result || loading) {
+    if (!result && !imageResult) {
+      return;
+    }
+
+    if (loading) {
       return;
     }
 
     resultSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [result, loading]);
+  }, [result, imageResult, loading]);
 
   function handleClear() {
     setUrl("");
     setActiveAction(null);
     setResult("");
+    setImageResult(null);
+    setImagePrompt("");
     setLoading(false);
     setProcessMessage(null);
     setErrorCode(null);
@@ -100,6 +119,21 @@ export default function ReferentForm() {
   }
 
   async function handleCopy() {
+    if (imageResult) {
+      try {
+        const response = await fetch(imageResult);
+        const blob = await response.blob();
+        await navigator.clipboard.write([
+          new ClipboardItem({ [blob.type]: blob }),
+        ]);
+        setCopyLabel("Скопировано");
+        window.setTimeout(() => setCopyLabel("Копировать"), 2000);
+      } catch {
+        handleDownload();
+      }
+      return;
+    }
+
     if (!result) {
       return;
     }
@@ -112,6 +146,19 @@ export default function ReferentForm() {
       setCopyLabel("Ошибка");
       window.setTimeout(() => setCopyLabel("Копировать"), 2000);
     }
+  }
+
+  function handleDownload() {
+    if (!imageResult) {
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = imageResult;
+    link.download = "illustration.png";
+    link.click();
+    setCopyLabel("Скачано");
+    window.setTimeout(() => setCopyLabel("Скачать"), 2000);
   }
 
   async function handleAction(action: ActionType) {
@@ -132,24 +179,43 @@ export default function ReferentForm() {
 
     setActiveAction(action);
     setLoading(true);
-    setProcessMessage("Загружаю статью…");
+    setProcessMessage(
+      action === "illustration" ? "Создаю промпт иллюстрации…" : "Загружаю статью…",
+    );
     setResult("");
+    setImageResult(null);
+    setImagePrompt("");
 
     try {
-      const data = await postApi<{ result?: string }>("/api/analyze", {
-        url: trimmedUrl,
-        action,
-      });
+      if (action === "illustration") {
+        const data = await postApi<{ image?: string; prompt?: string }>(
+          "/api/illustrate",
+          { url: trimmedUrl },
+        );
 
-      setResult(data.result ?? "");
+        setImageResult(data.image ?? null);
+        setImagePrompt(data.prompt ?? "");
+      } else {
+        const data = await postApi<{ result?: string }>("/api/analyze", {
+          url: trimmedUrl,
+          action,
+        });
+
+        setResult(data.result ?? "");
+      }
     } catch (actionError) {
       setErrorCode(resolveClientError(actionError));
       setResult("");
+      setImageResult(null);
+      setImagePrompt("");
     } finally {
       setLoading(false);
       setProcessMessage(null);
     }
   }
+
+  const hasOutput = Boolean(result || imageResult);
+  const actionButtonLabel = imageResult ? "Скачать" : copyLabel;
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-6 md:gap-8">
@@ -196,7 +262,7 @@ export default function ReferentForm() {
           </Alert>
         )}
 
-        <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {ACTIONS.map((action) => {
             const isActive = activeAction === action.id;
             const isBusy = loading && isActive;
@@ -255,11 +321,11 @@ export default function ReferentForm() {
           <h2 className="text-lg font-semibold text-slate-900">Результат</h2>
           <button
             type="button"
-            onClick={handleCopy}
-            disabled={!result || loading}
+            onClick={imageResult ? handleDownload : handleCopy}
+            disabled={!hasOutput || loading}
             className="w-full shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
-            {copyLabel}
+            {actionButtonLabel}
           </button>
         </div>
 
@@ -270,6 +336,20 @@ export default function ReferentForm() {
           {loading ? (
             <div className="flex h-48 items-center justify-center">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
+            </div>
+          ) : imageResult ? (
+            <div className="space-y-4">
+              <img
+                src={imageResult}
+                alt="Сгенерированная иллюстрация"
+                className="mx-auto max-h-[480px] w-full rounded-lg object-contain"
+              />
+              {imagePrompt && (
+                <p className="text-xs leading-relaxed text-slate-500 break-words">
+                  <span className="font-medium text-slate-600">Промпт: </span>
+                  {imagePrompt}
+                </p>
+              )}
             </div>
           ) : result ? (
             result

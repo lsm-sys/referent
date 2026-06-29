@@ -3,6 +3,7 @@ import "server-only";
 import * as cheerio from "cheerio";
 import { ErrorCode } from "@/lib/error-codes";
 import { AppError } from "@/lib/errors";
+import { getCachedArticle, setCachedArticle } from "@/lib/parse-cache";
 
 export type ParsedArticle = {
   date: string | null;
@@ -152,6 +153,12 @@ function extractContent($: cheerio.CheerioAPI): string | null {
 }
 
 export async function fetchAndParseArticle(url: string): Promise<ParsedArticle> {
+  const cached = getCachedArticle(url);
+
+  if (cached) {
+    return cached;
+  }
+
   try {
     const response = await fetch(url, {
       headers: {
@@ -170,11 +177,15 @@ export async function fetchAndParseArticle(url: string): Promise<ParsedArticle> 
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    return {
+    const article = {
       date: extractDate($),
       title: extractTitle($),
       content: extractContent($),
     };
+
+    setCachedArticle(url, article);
+
+    return article;
   } catch (error) {
     if (error instanceof AppError) {
       throw error;

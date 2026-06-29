@@ -7,6 +7,9 @@ export const ErrorCode = {
   AI_FAILED: "AI_FAILED",
   AI_CONFIG_MISSING: "AI_CONFIG_MISSING",
   AI_TIMEOUT: "AI_TIMEOUT",
+  IMAGE_FAILED: "IMAGE_FAILED",
+  IMAGE_CONFIG_MISSING: "IMAGE_CONFIG_MISSING",
+  IMAGE_PERMISSION_DENIED: "IMAGE_PERMISSION_DENIED",
   REQUEST_TIMEOUT: "REQUEST_TIMEOUT",
   SERVER_UNAVAILABLE: "SERVER_UNAVAILABLE",
   INVALID_RESPONSE: "INVALID_RESPONSE",
@@ -30,6 +33,12 @@ const ERROR_MESSAGES: Record<ErrorCode, string> = {
     "Сервис AI не настроен. Добавьте ключ OpenRouter в настройки.",
   [ErrorCode.AI_TIMEOUT]:
     "Генерация ответа заняла слишком много времени. Попробуйте позже.",
+  [ErrorCode.IMAGE_FAILED]:
+    "Не удалось сгенерировать изображение. Попробуйте позже.",
+  [ErrorCode.IMAGE_CONFIG_MISSING]:
+    "Сервис генерации изображений не настроен. Добавьте ключ Hugging Face в настройки.",
+  [ErrorCode.IMAGE_PERMISSION_DENIED]:
+    "У токена Hugging Face нет прав на генерацию изображений. Создайте fine-grained токен на huggingface.co/settings/tokens и включите «Make calls to Inference Providers».",
   [ErrorCode.REQUEST_TIMEOUT]:
     "Превышено время ожидания. Попробуйте позже.",
   [ErrorCode.SERVER_UNAVAILABLE]:
