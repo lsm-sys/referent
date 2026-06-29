@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { apiErrorResponse, validateArticleUrl } from "@/lib/api-helpers";
+import {
+  apiErrorResponse,
+  ensureArticleContent,
+  validateArticleUrl,
+} from "@/lib/api-helpers";
 import { fetchAndParseArticle } from "@/lib/parse-article";
 
 export async function POST(request: Request) {
@@ -12,16 +16,10 @@ export async function POST(request: Request) {
     }
 
     const article = await fetchAndParseArticle(validated.url);
-
-    if (!article.content?.trim()) {
-      return NextResponse.json(
-        { error: "Не удалось извлечь текст статьи. Попробуйте другой URL." },
-        { status: 422 },
-      );
-    }
+    ensureArticleContent(article.content);
 
     return NextResponse.json(article);
   } catch (error) {
-    return apiErrorResponse(error, "Ошибка при парсинге статьи");
+    return apiErrorResponse(error);
   }
 }

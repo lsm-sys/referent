@@ -1,57 +1,49 @@
-export function getHttpFetchMessage(status: number): string {
-  if (status === 403) {
-    return "Сайт заблокировал запрос (403). Попробуйте другой URL.";
-  }
+import { ErrorCode, type ErrorCode as ErrorCodeType } from "@/lib/error-codes";
 
-  if (status === 404) {
-    return "Страница не найдена (404). Проверьте URL.";
-  }
+export class AppError extends Error {
+  readonly code: ErrorCodeType;
 
-  if (status === 401 || status === 407) {
-    return `Не удалось получить доступ к странице: HTTP ${status}.`;
+  constructor(code: ErrorCodeType, options?: { cause?: unknown }) {
+    super(code);
+    this.name = "AppError";
+    this.code = code;
+    if (options?.cause !== undefined) {
+      this.cause = options.cause;
+    }
   }
-
-  return `Не удалось загрузить страницу: HTTP ${status}.`;
 }
 
-export function toApiError(
-  error: unknown,
-  fallbackMessage: string,
-): { message: string; status: number } {
+export function toErrorCode(error: unknown): ErrorCodeType {
+  if (error instanceof AppError) {
+    return error.code;
+  }
+
   if (error instanceof Error) {
     if (error.name === "AbortError" || error.name === "TimeoutError") {
-      return {
-        message: "Превышено время ожидания. Попробуйте позже или выберите другую статью.",
-        status: 504,
-      };
+      return ErrorCode.REQUEST_TIMEOUT;
     }
-
-    if (error.message.includes("OPENROUTER_API_KEY")) {
-      return {
-        message:
-          "OPENROUTER_API_KEY не настроен. Добавьте ключ в .env.local или в Vercel Environment Variables.",
-        status: 503,
-      };
-    }
-
-    return { message: error.message, status: 500 };
   }
 
-  return { message: fallbackMessage, status: 500 };
+  return ErrorCode.UNKNOWN;
 }
 
-export function getClientErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    if (error.name === "AbortError") {
-      return "Превышено время ожидания. Попробуйте позже.";
-    }
-
-    if (error.message === "Failed to fetch") {
-      return "Не удалось связаться с сервером. Проверьте, что dev-сервер запущен.";
-    }
-
-    return error.message;
+export function toHttpStatus(code: ErrorCodeType): number {
+  switch (code) {
+    case ErrorCode.URL_REQUIRED:
+    case ErrorCode.URL_INVALID:
+    case ErrorCode.INVALID_ACTION:
+      return 400;
+    case ErrorCode.ARTICLE_CONTENT_EMPTY:
+      return 422;
+    case ErrorCode.AI_CONFIG_MISSING:
+      return 503;
+    case ErrorCode.REQUEST_TIMEOUT:
+    case ErrorCode.AI_TIMEOUT:
+      return 504;
+    case ErrorCode.SERVER_UNAVAILABLE:
+    case ErrorCode.INVALID_RESPONSE:
+      return 502;
+    default:
+      return 500;
   }
-
-  return "Ошибка при обработке статьи";
 }

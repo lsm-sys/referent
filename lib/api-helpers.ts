@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { toApiError } from "@/lib/errors";
+import { ErrorCode } from "@/lib/error-codes";
+import { AppError, toErrorCode, toHttpStatus } from "@/lib/errors";
 
 export function validateArticleUrl(
   url: unknown,
@@ -7,23 +8,32 @@ export function validateArticleUrl(
   const trimmed = typeof url === "string" ? url.trim() : "";
 
   if (!trimmed) {
-    return NextResponse.json({ error: "URL не указан" }, { status: 400 });
+    return apiCodeResponse(ErrorCode.URL_REQUIRED);
   }
 
   try {
     new URL(trimmed);
   } catch {
-    return NextResponse.json({ error: "Некорректный URL" }, { status: 400 });
+    return apiCodeResponse(ErrorCode.URL_INVALID);
   }
 
   return { url: trimmed };
 }
 
-export function apiErrorResponse(
-  error: unknown,
-  fallbackMessage: string,
+export function apiCodeResponse(
+  code: (typeof ErrorCode)[keyof typeof ErrorCode],
 ): NextResponse {
-  const { message, status } = toApiError(error, fallbackMessage);
+  return NextResponse.json({ code }, { status: toHttpStatus(code) });
+}
 
-  return NextResponse.json({ error: message }, { status });
+export function apiErrorResponse(error: unknown): NextResponse {
+  const code = toErrorCode(error);
+
+  return NextResponse.json({ code }, { status: toHttpStatus(code) });
+}
+
+export function ensureArticleContent(content: string | null | undefined): void {
+  if (!content?.trim()) {
+    throw new AppError(ErrorCode.ARTICLE_CONTENT_EMPTY);
+  }
 }

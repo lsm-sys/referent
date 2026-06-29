@@ -1,7 +1,14 @@
 import "server-only";
 
 import { buildArticlePromptInput } from "@/lib/article-text";
-
+import {
+  appendCategoryToResult,
+  ARTICLE_CATEGORIES,
+  normalizeCategory,
+  type ArticleCategory,
+} from "@/lib/article-categories";
+import { ErrorCode } from "@/lib/error-codes";
+import { AppError } from "@/lib/errors";
 type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -23,35 +30,50 @@ export async function chatCompletion(
   const apiKey = process.env.OPENROUTER_API_KEY;
 
   if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY не настроен в .env.local");
+    throw new AppError(ErrorCode.AI_CONFIG_MISSING);
   }
 
-  const response = await fetch(`${getOpenRouterBaseUrl()}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ model, messages }),
-    signal: AbortSignal.timeout(90000),
-  });
+  try {
+    const response = await fetch(`${getOpenRouterBaseUrl()}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model, messages }),
+      signal: AbortSignal.timeout(120_000),
+    });
 
-  const data = (await response.json()) as {
-    choices?: { message?: { content?: string } }[];
-    error?: { message?: string };
-  };
+    const data = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+      error?: { message?: string };
+    };
 
-  if (!response.ok) {
-    throw new Error(data.error?.message ?? `OpenRouter: HTTP ${response.status}`);
+    if (!response.ok) {
+      throw new AppError(ErrorCode.AI_FAILED);
+    }
+
+    const content = data.choices?.[0]?.message?.content?.trim();
+
+    if (!content) {
+      throw new AppError(ErrorCode.AI_FAILED);
+    }
+
+    return content;
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    if (
+      error instanceof Error &&
+      (error.name === "AbortError" || error.name === "TimeoutError")
+    ) {
+      throw new AppError(ErrorCode.AI_TIMEOUT, { cause: error });
+    }
+
+    throw new AppError(ErrorCode.AI_FAILED, { cause: error });
   }
-
-  const content = data.choices?.[0]?.message?.content?.trim();
-
-  if (!content) {
-    throw new Error("OpenRouter вернул пустой ответ");
-  }
-
-  return content;
 }
 
 export async function translateArticle(
@@ -139,4 +161,31 @@ export async function generateTelegramPost(
   }
 
   return post;
+}
+
+const CATEGORY_LIST = ARTICLE_CATEGORIES.map((category) => `«${category}»`).join(", ");
+
+export async function classifyArticleCategory(
+  title: string | null,
+  content: string | null,
+): Promise<ArticleCategory> {
+  const { text: articleText } = buildArticlePromptInput(title, content);
+
+  const raw = await chatCompletion([
+    {
+      role: "system",
+      content:
+        "Ты классификатор статей. Определяешь тематическую категорию материала по его содержанию. Отвечаешь только названием категории из списка, без пояснений.",
+    },
+    {
+      role: "user",
+      content: `Выбери одну категорию для этой статьи из списка: ${CATEGORY_LIST}.\n\nВерни только название категории.\n\n${articleText}`,
+    },
+  ]);
+
+  return normalizeCategory(raw);
+}
+
+export function withCategory(result: string, category: ArticleCategory): string {
+  return appendCategoryToResult(result, category);
 }

@@ -1,11 +1,21 @@
 import { NextResponse } from "next/server";
-import { apiErrorResponse, validateArticleUrl } from "@/lib/api-helpers";
+import {
+  apiCodeResponse,
+  apiErrorResponse,
+  ensureArticleContent,
+  validateArticleUrl,
+} from "@/lib/api-helpers";
+import { ErrorCode } from "@/lib/error-codes";
 import { fetchAndParseArticle } from "@/lib/parse-article";
 import {
+  classifyArticleCategory,
   extractTheses,
   generateTelegramPost,
   summarizeArticle,
+  withCategory,
 } from "@/lib/openrouter";
+
+export const maxDuration = 240;
 
 const ACTIONS = ["summary", "theses", "telegram"] as const;
 
@@ -27,20 +37,16 @@ export async function POST(request: Request) {
     const action = body.action?.trim();
 
     if (!action || !isAnalyzeAction(action)) {
-      return NextResponse.json(
-        { error: "Укажите action: summary, theses или telegram" },
-        { status: 400 },
-      );
+      return apiCodeResponse(ErrorCode.INVALID_ACTION);
     }
 
     const article = await fetchAndParseArticle(validated.url);
+    ensureArticleContent(article.content);
 
-    if (!article.content?.trim()) {
-      return NextResponse.json(
-        { error: "Не удалось извлечь текст статьи. Попробуйте другой URL." },
-        { status: 422 },
-      );
-    }
+    const categoryPromise = classifyArticleCategory(
+      article.title,
+      article.content,
+    );
 
     let result: string;
 
@@ -61,8 +67,10 @@ export async function POST(request: Request) {
         break;
     }
 
-    return NextResponse.json({ result });
+    const category = await categoryPromise;
+
+    return NextResponse.json({ result: withCategory(result, category) });
   } catch (error) {
-    return apiErrorResponse(error, "Ошибка при анализе статьи");
+    return apiErrorResponse(error);
   }
 }

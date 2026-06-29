@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { getClientErrorMessage } from "@/lib/errors";
+import { CircleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { postApi, resolveClientError } from "@/lib/api-client";
+import { ErrorCode, getErrorMessage, type ErrorCode as ErrorCodeType } from "@/lib/error-codes";
 
 type ActionType = "summary" | "theses" | "telegram";
 
@@ -43,29 +46,18 @@ const BUSY_LABELS: Record<ActionType, string> = {
   telegram: "Пост...",
 };
 
-const REQUEST_TIMEOUT_MS = 120_000;
-
-async function postJson<T>(
-  url: string,
-  body: unknown,
-): Promise<{ response: Response; data: T }> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    const data = (await response.json()) as T;
-    return { response, data };
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
+const ERROR_TITLES: Partial<Record<ErrorCodeType, string>> = {
+  [ErrorCode.URL_REQUIRED]: "Нужен URL",
+  [ErrorCode.URL_INVALID]: "Некорректный URL",
+  [ErrorCode.ARTICLE_FETCH_FAILED]: "Статья недоступна",
+  [ErrorCode.ARTICLE_CONTENT_EMPTY]: "Текст не найден",
+  [ErrorCode.AI_FAILED]: "Ошибка генерации",
+  [ErrorCode.AI_CONFIG_MISSING]: "AI не настроен",
+  [ErrorCode.AI_TIMEOUT]: "Слишком долго",
+  [ErrorCode.REQUEST_TIMEOUT]: "Слишком долго",
+  [ErrorCode.SERVER_UNAVAILABLE]: "Сервер недоступен",
+  [ErrorCode.INVALID_RESPONSE]: "Неверный ответ",
+};
 
 export default function ReferentForm() {
   const [url, setUrl] = useState("");
@@ -73,7 +65,9 @@ export default function ReferentForm() {
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
   const [processMessage, setProcessMessage] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState<ErrorCodeType | null>(null);
+  const [copyLabel, setCopyLabel] = useState("Копировать");
+  const resultSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!loading || !activeAction) {
@@ -87,19 +81,52 @@ export default function ReferentForm() {
     return () => clearTimeout(timer);
   }, [loading, activeAction]);
 
+  useEffect(() => {
+    if (!result || loading) {
+      return;
+    }
+
+    resultSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [result, loading]);
+
+  function handleClear() {
+    setUrl("");
+    setActiveAction(null);
+    setResult("");
+    setLoading(false);
+    setProcessMessage(null);
+    setErrorCode(null);
+    setCopyLabel("Копировать");
+  }
+
+  async function handleCopy() {
+    if (!result) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(result);
+      setCopyLabel("Скопировано");
+      window.setTimeout(() => setCopyLabel("Копировать"), 2000);
+    } catch {
+      setCopyLabel("Ошибка");
+      window.setTimeout(() => setCopyLabel("Копировать"), 2000);
+    }
+  }
+
   async function handleAction(action: ActionType) {
-    setError("");
+    setErrorCode(null);
 
     const trimmedUrl = url.trim();
     if (!trimmedUrl) {
-      setError("Введите URL англоязычной статьи");
+      setErrorCode(ErrorCode.URL_REQUIRED);
       return;
     }
 
     try {
       new URL(trimmedUrl);
     } catch {
-      setError("Введите корректный URL, например https://example.com/article");
+      setErrorCode(ErrorCode.URL_INVALID);
       return;
     }
 
@@ -109,18 +136,14 @@ export default function ReferentForm() {
     setResult("");
 
     try {
-      const { response, data } = await postJson<{
-        result?: string;
-        error?: string;
-      }>("/api/analyze", { url: trimmedUrl, action });
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "Не удалось выполнить анализ статьи");
-      }
+      const data = await postApi<{ result?: string }>("/api/analyze", {
+        url: trimmedUrl,
+        action,
+      });
 
       setResult(data.result ?? "");
     } catch (actionError) {
-      setError(getClientErrorMessage(actionError));
+      setErrorCode(resolveClientError(actionError));
       setResult("");
     } finally {
       setLoading(false);
@@ -129,20 +152,20 @@ export default function ReferentForm() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+    <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-6 md:gap-8">
       <header className="space-y-2">
         <p className="text-sm font-medium tracking-wide text-indigo-600 uppercase">
           Referent
         </p>
-        <h1 className="text-3xl font-semibold text-slate-900">
+        <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
           Анализ англоязычных статей
         </h1>
-        <p className="text-slate-600">
+        <p className="text-sm text-slate-600 sm:text-base">
           Вставьте ссылку на статью и выберите, что нужно сгенерировать.
         </p>
       </header>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 md:p-6">
         <label htmlFor="article-url" className="mb-2 block text-sm font-medium text-slate-700">
           URL англоязычной статьи
         </label>
@@ -150,20 +173,30 @@ export default function ReferentForm() {
           id="article-url"
           type="url"
           value={url}
-          onChange={(event) => setUrl(event.target.value)}
+          onChange={(event) => {
+            setUrl(event.target.value);
+            if (errorCode) {
+              setErrorCode(null);
+            }
+          }}
           placeholder="Введите URL статьи, например: https://example.com/article"
-          className="w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+          className="w-full min-w-0 rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 placeholder:text-xs placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 sm:text-base sm:placeholder:text-sm"
         />
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs leading-relaxed text-slate-500">
           Укажите ссылку на англоязычную статью
         </p>
-        {error && (
-          <p className="mt-2 text-sm text-red-600" role="alert">
-            {error}
-          </p>
+
+        {errorCode && (
+          <Alert variant="destructive" className="mt-4 min-w-0">
+            <CircleAlert className="shrink-0" />
+            <AlertTitle>{ERROR_TITLES[errorCode] ?? "Ошибка"}</AlertTitle>
+            <AlertDescription className="break-words">
+              {getErrorMessage(errorCode)}
+            </AlertDescription>
+          </Alert>
         )}
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
           {ACTIONS.map((action) => {
             const isActive = activeAction === action.id;
             const isBusy = loading && isActive;
@@ -176,36 +209,62 @@ export default function ReferentForm() {
                 disabled={loading}
                 onClick={() => handleAction(action.id)}
                 className={[
-                  "rounded-xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60",
+                  "w-full min-w-0 rounded-xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60",
                   isActive
                     ? "border-indigo-500 bg-indigo-50 text-indigo-900"
                     : "border-slate-200 bg-slate-50 text-slate-800 hover:border-indigo-300 hover:bg-indigo-50/60",
                 ].join(" ")}
               >
-                <span className="block text-sm font-semibold">{action.label}</span>
-                <span className="mt-1 block text-xs text-slate-500">
+                <span className="block text-sm font-semibold break-words">
+                  {action.label}
+                </span>
+                <span className="mt-1 block text-xs leading-relaxed text-slate-500 break-words">
                   {isBusy ? BUSY_LABELS[action.id] : action.description}
                 </span>
               </button>
             );
           })}
         </div>
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={loading}
+            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            Очистить
+          </button>
+        </div>
       </section>
 
       {processMessage && (
         <div
-          className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800"
+          className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm leading-relaxed text-indigo-800 break-words"
           aria-live="polite"
         >
           {processMessage}
         </div>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-lg font-semibold text-slate-900">Результат</h2>
+      <section
+        ref={resultSectionRef}
+        className="scroll-mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 md:p-6 md:scroll-mt-6"
+      >
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">Результат</h2>
+          <button
+            type="button"
+            onClick={handleCopy}
+            disabled={!result || loading}
+            className="w-full shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            {copyLabel}
+          </button>
+        </div>
 
         <div
-          className="min-h-48 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-700 whitespace-pre-wrap break-words"
+          className="min-h-48 min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-700 wrap-break-word whitespace-pre-wrap"
           aria-live="polite"
         >
           {loading ? (

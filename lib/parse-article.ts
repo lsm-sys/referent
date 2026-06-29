@@ -1,7 +1,8 @@
 import "server-only";
 
 import * as cheerio from "cheerio";
-import { getHttpFetchMessage } from "@/lib/errors";
+import { ErrorCode } from "@/lib/error-codes";
+import { AppError } from "@/lib/errors";
 
 export type ParsedArticle = {
   date: string | null;
@@ -151,26 +152,34 @@ function extractContent($: cheerio.CheerioAPI): string | null {
 }
 
 export async function fetchAndParseArticle(url: string): Promise<ParsedArticle> {
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml",
-    },
-    redirect: "follow",
-    signal: AbortSignal.timeout(15000),
-  });
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    });
 
-  if (!response.ok) {
-    throw new Error(getHttpFetchMessage(response.status));
+    if (!response.ok) {
+      throw new AppError(ErrorCode.ARTICLE_FETCH_FAILED);
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    return {
+      date: extractDate($),
+      title: extractTitle($),
+      content: extractContent($),
+    };
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw new AppError(ErrorCode.ARTICLE_FETCH_FAILED, { cause: error });
   }
-
-  const html = await response.text();
-  const $ = cheerio.load(html);
-
-  return {
-    date: extractDate($),
-    title: extractTitle($),
-    content: extractContent($),
-  };
 }

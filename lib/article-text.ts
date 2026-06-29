@@ -1,5 +1,8 @@
 import "server-only";
 
+import { ErrorCode } from "@/lib/error-codes";
+import { AppError } from "@/lib/errors";
+
 const DEFAULT_MAX_LENGTH = 12000;
 const TRUNCATION_SUFFIX = "\n\n[... текст обрезан ...]";
 
@@ -14,7 +17,7 @@ export function buildArticlePromptInput(
   maxLength = DEFAULT_MAX_LENGTH,
 ): ArticlePromptInput {
   if (!content?.trim()) {
-    throw new Error("Не удалось извлечь текст статьи");
+    throw new AppError(ErrorCode.ARTICLE_CONTENT_EMPTY);
   }
 
   const normalizedContent = content.trim();
